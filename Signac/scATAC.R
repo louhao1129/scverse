@@ -1,6 +1,6 @@
 rm(list = ls())
 gc()
-setwd("./scverse/data/scATAC")
+setwd("./scverse/Signac")
 
 # 文件准备1：
 # 1.atac_v1_pbmc_10k_filtered_peak_bc_matrix.h5
@@ -36,7 +36,7 @@ plan(multicore, workers = 3) # windows:multisession  linux:multisession,multicor
 options(future.globals.maxSize = 10 * 1024^3) # for 10 Gb RAM
 
 
-path_10X_samples <- "F:/sxdw/scATAC/class7/data/GSE000"
+path_10X_samples <- "./data/GSE000"
 samples <- list.files(path_10X_samples)
 samples <- samples[gtools::mixedorder(samples)]
 atacS4_list <- list()
@@ -44,7 +44,7 @@ samples <- samples[2:3] # 选取两个样本
 for(sample in samples){
   # sample = samples[1]
   data.path <- file.path(path_10X_samples, sample)
-  files <- dir(data.path)
+  files <- dir(data.path) # List the Files in a Directory/Folder
   peak_bc_matrix <- files[stringr::str_detect(files,"peak_bc_matrix.h5")]
   singlecell <- files[stringr::str_detect(files,"singlecell.csv")]
   frag <- files[stringr::str_detect(files,"fragments.tsv.gz$")]

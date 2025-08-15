@@ -49,15 +49,18 @@ source ~/.bashrc
 wget "https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-2024-A.tar.gz"
 tar -xzvf refdata-gex-GRCh38-2024-A.tar.gz
 
+注：我还下载了cellranger8，可以使用
+/data/share/nas1/sjwlab/louhao/software/cellranger-8.0.1/cellranger -h
+
 
 mkdir results
 cd results
 
-cellranger count --help
+cellranger count --help # 默认是使用的v9
 
 cellranger count --id=sample1 \
                    --transcriptome=/data/share/nas1/sjwlab/louhao/reference/cellranger_ref/refdata-gex-GRCh38-2024-A \
-                   --fastqs=/data/share/nas1/sjwlab/louhao/scverse/data/velocity/sample1 \
+                   --fastqs=/data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample1 \
                    --sample=sample1 \
                    --create-bam=true \
                    --localcores=32 \
