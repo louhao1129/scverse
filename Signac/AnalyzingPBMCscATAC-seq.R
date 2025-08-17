@@ -6,6 +6,7 @@ library(GenomicRanges)
 library(ggplot2)
 library(patchwork)
 
+getwd()
 setwd("./scverse/Signac/data/PBMC10k")
 list.files()
 # 预处理工作流程
@@ -38,4 +39,261 @@ pbmc
 pbmc[['peaks']]
 # 如果没有 .h5 文件，仍可运行分析。您可能有格式化为三个文件的数据，一个计数文件 （.mtx）、一个单元格条形码文件和一个峰值文件。
 # 如果是这种情况，您可以使用 Matrix：：readMM（） 函数加载数据
+
+# 我们可以在 Seurat 对象上调用 granges， 并将 ChromatinAssay 设置为 active assay（或在 ChromatinAssay ）以查看与对象中每个特征关联的基因组范围
+granges(pbmc)
+
+
+# 然后，我们删除与染色体支架相对应的特征，例如 （KI270713.1） 或其他序列，不是 （22+2） 标准染色体。
+peaks.keep <- seqnames(granges(pbmc)) %in% standardChromosomes(granges(pbmc))
+pbmc <- pbmc[as.vector(peaks.keep), ]
+# 我们还可以为人类基因组的 pbmc 对象添加基因注释。这将允许下游函数直接从对象中提取基因注释信息。
+# 每个基因组组装都会发布多个补丁。在处理映射数据（例如我们将使用的 10x Genomics 文件）时，建议使用用于执行映射的同一程序集补丁中的注释。
+# 从数据集摘要中我们可以看到，用于进行映射的参考包 10x Genomics 是“GRCh38-2020-A”，它对应于 Ensembl v98 补丁版本。
+# 有关各种 Ensembl 版本的更多信息，您可以参考此站点 。
+
+library(AnnotationHub)
+ah <- AnnotationHub() # 第一次运行需要下载入缓存，注意开启代理，如果中断下载，注意手动删除损坏的文件
+
+# Search for the Ensembl 98 EnsDb for Homo sapiens on AnnotationHub
+query(ah, "EnsDb.Hsapiens.v98")
+
+ensdb_v98 <- ah[["AH75011"]] # 第一次运行需要下载入缓存，注意开启代理
+# AnnotationHub::removeResources(ah, "AH75011") # 如果中断下载，注意手动删除损坏的文件
+
+# extract gene annotations from EnsDb
+annotations <- GetGRangesFromEnsDb(ensdb = ensdb_v98)
+
+# change to UCSC style since the data was mapped to hg38
+seqlevels(annotations) <- paste0('chr', seqlevels(annotations))
+genome(annotations) <- "hg38"
+
+# extract gene annotations from EnsDb
+annotations <- GetGRangesFromEnsDb(ensdb = ensdb_v98)
+
+
+# 计算质量控制指标
+
+# compute nucleosome signal score per cell
+pbmc <- NucleosomeSignal(object = pbmc)
+
+# compute TSS enrichment score per cell
+pbmc <- TSSEnrichment(object = pbmc)
+
+# add fraction of reads in peaks
+pbmc$pct_reads_in_peaks <- pbmc$peak_region_fragments / pbmc$passed_filters * 100
+
+# add blacklist ratio
+pbmc$blacklist_ratio <- FractionCountsInRegion(
+  object = pbmc, 
+  assay = 'peaks',
+  regions = blacklist_hg38_unified
+)
+
+# 可以使用 DensityScatter（） 函数可视化存储在对象元数据中的变量之间的关系。
+# 这也可用于通过设置分位数=TRUE 快速找到不同 QC 指标的合适临界值：
+DensityScatter(pbmc, x = 'nCount_peaks', y = 'TSS.enrichment', log_x = TRUE, quantiles = TRUE)
+
+
+pbmc$nucleosome_group <- ifelse(pbmc$nucleosome_signal > 4, 'NS > 4', 'NS < 4')
+FragmentHistogram(object = pbmc, group.by = 'nucleosome_group')
+
+# 使用小提琴图分别绘制每个 QC 指标的分布
+VlnPlot(
+  object = pbmc,
+  features = c('nCount_peaks', 'TSS.enrichment', 'blacklist_ratio', 'nucleosome_signal', 'pct_reads_in_peaks'),
+  pt.size = 0.1,
+  ncol = 5
+)
+
+
+# 最后，我们删除这些 QC 指标的异常值单元格。需要根据您的数据集调整所使用的确切 QC 阈值。
+pbmc <- subset(
+  x = pbmc,
+  subset = nCount_peaks > 9000 &
+    nCount_peaks < 100000 &
+    pct_reads_in_peaks > 40 &
+    blacklist_ratio < 0.01 &
+    nucleosome_signal < 4 &
+    TSS.enrichment > 4
+)
+pbmc
+
+# 归一化和线性降维
+
+# 归一化：Signac 执行项频逆文档频率 （TF-IDF） 归一化。
+# 这是一个两步归一化过程，既可以跨细胞归一化以校正细胞测序深度的差异，也可以跨峰归一化以为更罕见的峰提供更高的值。
+
+# 特征选择：scATAC-seq 数据的低动态范围使得执行可变特征选择变得具有挑战性，就像我们对 scRNA-seq 所做的那样。
+# 相反，我们可以选择仅使用前 n % 的特征（峰）进行降维，或者使用 FindTopFeatures（） 删除少于 n 个单元格中存在的特征。
+# 在这里，我们将使用所有特征，尽管我们已经看到仅使用特征子集时，结果与使用全部特征类似（尝试将 min.cutoff 设置为“q75”以使用前 25% 的所有峰值），运行时间更快。 
+# 用于缩减尺寸的特征自动设置为 VariableFeatures（） 通过此函数对 Seurat 对象。
+
+# 降维：接下来，我们使用上面选择的特征（峰）对 TD-IDF 矩阵进行奇异值分解 （SVD）。
+# 这将返回对象的降维表示（对于更熟悉 scRNA-seq 的用户，您可以将其视为类似于 PCA 的输出）。
+
+# TF-IDF 和 SVD 的组合步骤被称为潜在语义索引（LSI），由 Cusanovich 等人 2015 年首次引入用于 scATAC-seq 数据的分析。
+
+pbmc <- RunTFIDF(pbmc)
+pbmc <- FindTopFeatures(pbmc, min.cutoff = 'q0')
+pbmc <- RunSVD(pbmc)
+
+# 第一个 LSI 成分通常捕获测序深度（技术 变异）而不是生物变异。
+# 如果是这种情况，则 应从下游分析中删除组件。我们可以使用 DepthCor（） 函数评估 每个 LSI 成分与测序深度之间的相关性：
+
+DepthCor(pbmc)
+# 在这里，我们看到第一个 LSI 成分与单元的总计数之间存在非常强的相关性。我们将在没有此组件的情况下执行下游步骤，
+# 因为我们不想根据细胞的总测序深度，而是根据细胞类型特异性峰的可及性模式将细胞分组在一起。
+
+# 非线性降维和聚类
+
+# 现在细胞已经嵌入到低维空间中，我们可以使用通常用于分析 scRNA-seq 数据的方法来执行基于图的聚类和非线性降维以进行可视化。
+# 函数 RunUMAP（） FindNeighbors（） 和 FindClusters（） 都来自 Seurat 包。
+
+pbmc <- RunUMAP(object = pbmc, reduction = 'lsi', dims = 2:30)
+pbmc <- FindNeighbors(object = pbmc, reduction = 'lsi', dims = 2:30)
+pbmc <- FindClusters(object = pbmc, verbose = FALSE, algorithm = 3)
+DimPlot(object = pbmc, label = TRUE) + NoLegend()
+
+# 创建基因活性矩阵
+# 在 scATAC-seq 数据中注释和解释簇更具挑战性，因为对非编码基因组区域的功能作用的了解远低于对蛋白质编码区域（基因）的了解。
+# 我们可以尝试通过评估与基因相关的染色质可及性来量化基因组中每个基因的活性，并创建源自 scATAC-seq 数据的新基因活性测定
+# 我们提取基因坐标并扩展它们以包括 2 kb 上游区域（因为启动子可及性通常与基因表达相关）。
+# 然后，我们使用 FeatureMatrix（） 函数计算映射到每个区域的每个单元格的片段数量。这些步骤由 GeneActivity（） 自动执行
+
+gene.activities <- GeneActivity(pbmc)
+# add the gene activity matrix to the Seurat object as a new assay and normalize it
+pbmc[['RNA']] <- CreateAssayObject(counts = gene.activities)
+pbmc <- NormalizeData(
+  object = pbmc,
+  assay = 'RNA',
+  normalization.method = 'LogNormalize',
+  scale.factor = median(pbmc$nCount_RNA)
+)
+
+# 现在我们可以可视化经典标记基因的活性，以帮助解释我们的 ATAC-seq 簇。
+# 请注意，这些活动将比 scRNA-seq 测量噪音大得多。这是因为它们代表了稀疏染色质数据的测量值，并且因为它们假设基因体/启动子可及性和基因表达之间存在一般对应关系，但情况可能并非总是如此。
+DefaultAssay(pbmc) <- 'RNA'
+
+FeaturePlot(
+  object = pbmc,
+  features = c('MS4A1', 'CD3D', 'LEF1', 'NKG7', 'TREM1', 'LYZ'),
+  pt.size = 0.1,
+  max.cutoff = 'q95',
+  ncol = 3
+)
+
+# 与 scRNA-seq 数据集成
+# 为了帮助解释 scATAC-seq 数据，我们可以根据来自同一生物系统（人 PBMC）的 scRNA-seq 实验对细胞进行分类。我们利用跨模态整合和标签转移的方法
+# 在这里，我们加载了人类 PBMC 的预处理 scRNA-seq 数据集
+
+# Load the pre-processed scRNA-seq data for PBMCs
+pbmc_rna <- readRDS("data/pbmc_10k_v3.rds")
+pbmc_rna <- UpdateSeuratObject(pbmc_rna)
+
+# Load the pre-processed scRNA-seq data for PBMCs
+pbmc_rna <- readRDS("pbmc_10k_v3.rds")
+pbmc_rna <- UpdateSeuratObject(pbmc_rna)
+
+predicted.labels <- TransferData(
+  anchorset = transfer.anchors,
+  refdata = pbmc_rna$celltype,
+  weight.reduction = pbmc[['lsi']],
+  dims = 2:30
+)
+
+pbmc <- AddMetaData(object = pbmc, metadata = predicted.labels)
+plot1 <- DimPlot(
+  object = pbmc_rna,
+  group.by = 'celltype',
+  label = TRUE,
+  repel = TRUE) + NoLegend() + ggtitle('scRNA-seq')
+
+plot2 <- DimPlot(
+  object = pbmc,
+  group.by = 'predicted.id',
+  label = TRUE,
+  repel = TRUE) + NoLegend() + ggtitle('scATAC-seq')
+
+plot1 + plot2
+
+# 您可以看到基于 scRNA 的分类与使用 scATAC-seq 数据计算的 UMAP 可视化一致。
+# 然而，请注意，在 scATAC-seq 数据集中，预计有一小部分细胞群是血小板。这是出乎意料的，因为血小板没有成核，不应通过 scATAC-seq 检测到。
+# 预测为血小板的细胞可能是血小板前体巨核细胞，这些细胞主要存在于骨髓中，但在健康患者的外周血中很少发现，例如这些 PBMC 的个体。鉴于正常骨髓中巨核细胞已经极其稀有（< 0.1%），这种情况似乎不太可能发生。
+# 由于只有极少数细胞被归类为“血小板”（< 20），因此很难弄清楚它们的精确细胞身份。需要更大的数据集来自信地识别该细胞群的特定峰，并进行进一步分析以正确注释它们。
+# 因此，对于下游分析，我们将删除预测的极其罕见的细胞状态，仅保留总共>20个细胞的细胞注释。
+predicted_id_counts <- table(pbmc$predicted.id)
+
+# Identify the predicted.id values that have more than 20 cells
+major_predicted_ids <- names(predicted_id_counts[predicted_id_counts > 20])
+pbmc <- pbmc[, pbmc$predicted.id %in% major_predicted_ids]
+
+# 对于下游分析，我们可以简单地将每个单元格的身份从其 UMAP 聚类索引重新分配到每个单元格的预测标签。也可以考虑合并聚类索引和预测标签。
+# change cell identities to the per-cell predicted labels
+Idents(pbmc) <- pbmc$predicted.id
+
+# 查找细胞类型之间可访问的差异峰
+# change back to working with peaks instead of gene activities
+DefaultAssay(pbmc) <- 'peaks'
+
+# wilcox is the default option for test.use
+da_peaks <- FindMarkers(
+  object = pbmc,
+  ident.1 = "CD4 Naive",
+  ident.2 = "CD14+ Monocytes",
+  test.use = 'wilcox',
+  min.pct = 0.1
+)
+
+head(da_peaks)
+
+
+plot1 <- VlnPlot(
+  object = pbmc,
+  features = rownames(da_peaks)[1],
+  pt.size = 0.1,
+  idents = c("CD4 Naive","CD14+ Monocytes")
+)
+plot2 <- FeaturePlot(
+  object = pbmc,
+  features = rownames(da_peaks)[1],
+  pt.size = 0.1
+)
+
+plot1 | plot2
+
+# 峰值坐标单独解读可能比较困难。我们可以使用ClosestFeature()函数找到每个峰值最近的基因。
+open_cd4naive <- rownames(da_peaks[da_peaks$avg_log2FC > 3, ])
+open_cd14mono <- rownames(da_peaks[da_peaks$avg_log2FC < -3, ])
+
+closest_genes_cd4naive <- ClosestFeature(pbmc, regions = open_cd4naive)
+closest_genes_cd14mono <- ClosestFeature(pbmc, regions = open_cd14mono)
+
+# 使用 clusterProfiler 进行 GO 富集分析
+
+
+# 绘制基因组区域
+
+# 出于绘图目的，最好将相关单元格类型分组 一起。我们可以根据以下内容自动对绘图顺序进行排序
+pbmc <- SortIdents(pbmc)
+# find DA peaks overlapping gene of interest
+regions_highlight <- subsetByOverlaps(StringToGRanges(open_cd4naive), LookupGeneCoords(pbmc, "CD4"))
+# 然后，我们可以可视化 CD4 幼稚细胞和 CD14 单核细胞中打开的 DA 峰，分别位于这些细胞类型 CD4 和 LYZ 的一些关键标记基因附近。在这里，我们将以灰色突出显示 DA 峰值区域。
+CoveragePlot(
+  object = pbmc,
+  region = "CD4",
+  region.highlight = regions_highlight,
+  extend.upstream = 1000,
+  extend.downstream = 1000
+)
+
+regions_highlight <- subsetByOverlaps(StringToGRanges(open_cd14mono), LookupGeneCoords(pbmc, "LYZ"))
+
+CoveragePlot(
+  object = pbmc,
+  region = "LYZ",
+  region.highlight = regions_highlight,
+  extend.upstream = 1000,
+  extend.downstream = 5000
+)
 
