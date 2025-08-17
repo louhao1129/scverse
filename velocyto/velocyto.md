@@ -63,6 +63,7 @@ gzip -d /data/share/nas1/sjwlab/louhao/reference/velocyto/genes.gtf.gz
 gzip -d /data/share/nas1/sjwlab/louhao/reference/velocyto/hg38_rmsk.gtf.gz
 
 For example if we want to run the pipeline on the cellranger output folder mypath/sample01. We would do:
+
 所以RNA速率也是每个样品进行一次分析
 
 cd /data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample1/results/sample1/outs
@@ -70,4 +71,8 @@ samtools sort -@ 36 -t CB -O BAM -o cellsorted_possorted_genome_bam.bam possorte
 
 velocyto run10x -m /data/share/nas1/sjwlab/louhao/reference/velocyto/hg38_rmsk.gtf /data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample1/results/sample2 /data/share/nas1/sjwlab/louhao/reference/velocyto/genes.gtf >log_vel 2>&1 &
 
-输出的数据存储在cellranger的 outs/velocyto
+会创建一个名为velocyto的文件夹存储结果（loom文件），和outs文件夹位于统一目录
+
+由于RNA速率也是每个样品进行一次分析，假设有六个样本，那么会生成六个loom文件
+
+如果你scRNA分析使用了6个样本，那么RNA速率也要对这六个样本逐个进行，然后合并loom文件，进行RNA速率分析

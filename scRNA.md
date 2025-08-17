@@ -98,3 +98,11 @@ Pipestance completed successfully!
 
 2025-08-14 21:25:30 Shutting down.
 Saving pipestance info to "sample1/sample1.mri.tgz"
+
+# 同法处理剩下样本
+
+prefetch --max-size 100G SRR13177105 > log_05 2>&1 &
+prefetch --max-size 100G SRR13177106 > log_06 2>&1 &
+prefetch --max-size 100G SRR13177107 > log_07 2>&1 &
+prefetch --max-size 100G SRR13177108 > log_08 2>&1 &
+
