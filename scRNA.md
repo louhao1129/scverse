@@ -101,8 +101,18 @@ Saving pipestance info to "sample1/sample1.mri.tgz"
 
 # 同法处理剩下样本
 
+source /data/share/nas1/clks/config/proxy/clash-pub.proxyrc
+
 prefetch --max-size 100G SRR13177105 > log_05 2>&1 &
 prefetch --max-size 100G SRR13177106 > log_06 2>&1 &
 prefetch --max-size 100G SRR13177107 > log_07 2>&1 &
 prefetch --max-size 100G SRR13177108 > log_08 2>&1 &
 
+转换为fastq
+parallel-fastq-dump --sra-id atac --threads 32  --outdir fastq_out/ --split-files --gzip
+
+mkdir sample2
+parallel-fastq-dump --sra-id SRR13177105.sra --threads 32  --outdir sample2/ --split-files --gzip
+parallel-fastq-dump --sra-id SRR13177106.sra --threads 32  --outdir sample2/ --split-files --gzip
+parallel-fastq-dump --sra-id SRR13177107.sra --threads 32  --outdir sample2/ --split-files --gzip
+parallel-fastq-dump --sra-id SRR13177108.sra --threads 32  --outdir sample2/ --split-files --gzip
