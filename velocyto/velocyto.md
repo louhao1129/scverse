@@ -69,7 +69,7 @@ For example if we want to run the pipeline on the cellranger output folder mypat
 cd /data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample1/results/sample1/outs
 samtools sort -@ 36 -t CB -O BAM -o cellsorted_possorted_genome_bam.bam possorted_genome_bam.bam
 
-velocyto run10x -m /data/share/nas1/sjwlab/louhao/reference/velocyto/hg38_rmsk.gtf /data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample1/results/sample2 /data/share/nas1/sjwlab/louhao/reference/velocyto/genes.gtf >log_vel 2>&1 &
+velocyto run10x -m /data/share/nas1/sjwlab/louhao/reference/velocyto/hg38_rmsk.gtf /data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample2/results/sample2 /data/share/nas1/sjwlab/louhao/reference/velocyto/genes.gtf >log_vel 2>&1 &
 
 会创建一个名为velocyto的文件夹存储结果（loom文件），和outs文件夹位于统一目录
 

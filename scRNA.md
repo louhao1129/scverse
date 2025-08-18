@@ -111,8 +111,42 @@ prefetch --max-size 100G SRR13177108 > log_08 2>&1 &
 转换为fastq
 parallel-fastq-dump --sra-id atac --threads 32  --outdir fastq_out/ --split-files --gzip
 
-mkdir sample2
+mkdir -p sample2
 parallel-fastq-dump --sra-id SRR13177105.sra --threads 32  --outdir sample2/ --split-files --gzip
 parallel-fastq-dump --sra-id SRR13177106.sra --threads 32  --outdir sample2/ --split-files --gzip
 parallel-fastq-dump --sra-id SRR13177107.sra --threads 32  --outdir sample2/ --split-files --gzip
 parallel-fastq-dump --sra-id SRR13177108.sra --threads 32  --outdir sample2/ --split-files --gzip
+
+cd sample2
+ls -lh  # 查看文件大小，根据大小，进行重命名sample1是自己起的，后面的内容是sra数据库中作者提供的，后面的是给软件读的
+
+mv SRR13177105_1.fastq.gz sample2_S12_L001_I1_001.fastq.gz
+mv SRR13177105_2.fastq.gz sample2_S12_L001_R1_001.fastq.gz
+mv SRR13177105_3.fastq.gz sample2_S12_L001_R2_001.fastq.gz
+
+mv SRR13177106_1.fastq.gz sample2_S12_L002_I1_001.fastq.gz
+mv SRR13177106_2.fastq.gz sample2_S12_L002_R1_001.fastq.gz
+mv SRR13177106_3.fastq.gz sample2_S12_L002_R2_001.fastq.gz
+
+mv SRR13177107_1.fastq.gz sample2_S12_L003_I1_001.fastq.gz
+mv SRR13177107_2.fastq.gz sample2_S12_L003_R1_001.fastq.gz
+mv SRR13177107_3.fastq.gz sample2_S12_L003_R2_001.fastq.gz
+
+mv SRR13177108_1.fastq.gz sample2_S12_L004_I1_001.fastq.gz
+mv SRR13177108_2.fastq.gz sample2_S12_L004_R1_001.fastq.gz
+mv SRR13177108_3.fastq.gz sample2_S12_L004_R2_001.fastq.gz
+
+
+mkdir results
+cd results
+
+cellranger count --help # 默认是使用的v9
+
+cellranger count --id=sample2 \
+                   --transcriptome=/data/share/nas1/sjwlab/louhao/reference/cellranger_ref/refdata-gex-GRCh38-2024-A \
+                   --fastqs=/data/share/nas1/sjwlab/louhao/scverse/data/velocyto/sample2 \
+                   --sample=sample2 \
+                   --create-bam=true \
+                   --localcores=32 \
+                   --localmem=200 \
+                   --nosecondary
